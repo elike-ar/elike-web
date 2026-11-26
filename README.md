@@ -34,6 +34,10 @@ Apps Script "Elike - Reclamos técnicos" (cuenta gustavo.retegui@elike-ar.com)
 - El código de este repo no tiene datos ni claves: los datos solo los devuelve el Apps Script con el PIN correcto.
 - Para cambiar el PIN: en la planilla de reclamos, menú del sistema → *Cambiar PIN* (o ejecutar `cambiarPin()`).
 
+### Estado actual (26/11/2026)
+
+Mientras no exista el repo en GitHub, el código de `reclamos/panel.js` está **pegado completo** dentro del sello del footer (Tiendanube → Diseño → Editar diseño → Pie de página → "Código Javascript o HTML del sello"), debajo de la línea de Praxis. Cuando el repo esté publicado, ese bloque `<script>…</script>` se reemplaza por la línea de jsDelivr de abajo.
+
 ### Publicar un cambio
 
 1. Commit y push a `main`.
