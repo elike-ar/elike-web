@@ -24,8 +24,14 @@
     filtro: 'abiertos',
     q: '',
     det: null,
-    cargando: false
+    cargando: false,
+    vista: 'reclamos',
+    rp: { lista: null, filtro: 'pendientes', q: '' }
   };
+
+  var RP_ORIGENES = ['Depósito', 'Stock instalador'];
+  var RP_DEVOLUCION = ['Pendiente', 'Recibida en depósito', 'No aplica'];
+  var CANALES = ['Tienda online ELIKE', 'Mercado Libre', 'Otro'];
 
   function leer(k) {
     try { return sessionStorage.getItem(k) || localStorage.getItem(k) || ''; } catch (e) { return ''; }
@@ -107,6 +113,14 @@
     var d = String(v || '').trim();
     if (!d) return '';
     return d.replace(/\D/g, '').length > 8 ? 'Venta ML ' + d : 'Orden #' + d.replace(/^#/, '');
+  }
+  function hoyISO() { return new Date().toISOString(); }
+  function claseDevolucion(x) { return x === 'Pendiente' ? 'espera' : (x === 'Recibida en depósito' ? 'ok' : 'cerrado'); }
+  function txtDevolucion(x) { return x === 'Pendiente' ? 'Devolución pendiente' : (x === 'Recibida en depósito' ? 'Recibida en depósito' : (x || '')); }
+  function tabs() {
+    return '<div class="erc-tabs">' +
+      '<button class="erc-tab' + (S.vista === 'reclamos' ? ' erc-tab--on' : '') + '" data-vista="reclamos">Reclamos</button>' +
+      '<button class="erc-tab' + (S.vista === 'reemplazos' ? ' erc-tab--on' : '') + '" data-vista="reemplazos">Reemplazos de unidades</button></div>';
   }
   function esFinal(estado) { return S.cfg && S.cfg.estadosFinales.indexOf(estado) !== -1; }
   function claseEstado(e) {
@@ -194,7 +208,15 @@
     '.erc-adj a{display:inline-block;margin:4px 8px 0 0;font-size:14px;color:var(--erc-acc)}',
     '.erc-save{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--erc-line);padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;align-items:center}',
     '.erc-full{grid-column:1/-1}',
-    '.erc-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--erc-dark,#07131c);color:#fff;padding:12px 18px;border-radius:12px;z-index:99999;font-family:Outfit,system-ui,sans-serif;transition:opacity .4s}',
+    '.erc-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--erc-dark,#07131c);color:#fff;padding:12px 18px;border-radius:12px;z-index:100000;font-family:Outfit,system-ui,sans-serif;transition:opacity .4s}',
+    '.erc-tabs{display:flex;gap:4px;margin:-4px 0 14px;border-bottom:1px solid var(--erc-line)}',
+    '.erc-tab{border:0;background:none;padding:10px 14px;font:inherit;font-size:15px;font-weight:600;color:var(--erc-mut);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}',
+    '.erc-tab--on{color:var(--erc-txt);border-bottom-color:var(--erc-acc)}',
+    '.erc-modal{position:fixed;inset:0;background:rgba(7,19,28,.55);z-index:99999;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px}',
+    '.erc-modal-box{background:var(--erc-bg);border-radius:18px;width:min(780px,100%);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}',
+    '.erc-modal-body{padding:16px 20px}',
+    '.erc-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;background:#fff;border-top:1px solid var(--erc-line)}',
+    '.erc-sec{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--erc-acc);margin:14px 0 0}',
     '.erc-toast--error{background:#9b1c14}',
     '.erc-toast--fuera{opacity:0}',
     '.erc-spin{display:inline-block;width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:erc-r .7s linear infinite;vertical-align:-3px}',
@@ -233,7 +255,11 @@
       '<div class="erc-wrap"><div class="erc-card" id="erc-main"></div></div>';
 
     mount.addEventListener('click', onClick);
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && S.det) cerrarDetalle(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var md = document.querySelector('.erc-modal');
+      if (md) md.remove(); else if (S.det) cerrarDetalle();
+    });
 
     if (S.pin) iniciar(); else pintarLogin();
   }
@@ -301,6 +327,7 @@
   }
 
   function pintarLista() {
+    if (S.vista === 'reemplazos') { pintarReemplazos(); return; }
     var cuenta = { todos: S.lista.length, abiertos: 0 };
     S.lista.forEach(function (r) {
       cuenta[r.estado] = (cuenta[r.estado] || 0) + 1;
@@ -315,7 +342,7 @@
 
     var filas = filtrados();
     var html =
-      '<div class="erc-top"><div class="erc-chips">' + chips + '</div>' +
+      tabs() + '<div class="erc-top"><div class="erc-chips">' + chips + '</div>' +
       '<div class="erc-tools"><input id="erc-q" type="search" placeholder="Buscar: RT, cliente, teléfono, producto, técnico…" value="' + esc(S.q) + '">' +
       '<button class="erc-btn erc-btn--sec erc-btn--chico" data-acc="refrescar" title="Actualizar">↻</button>' +
       '<button class="erc-btn erc-btn--sec erc-btn--chico" data-acc="salir">Salir</button></div></div>' +
@@ -462,6 +489,16 @@
       campo('notas', 'Notas internas (no las ve el cliente)', '<textarea id="erc-f-notas" data-k="notas">' + esc(r.notas) + '</textarea>', true) +
       '</div></div>';
 
+    var rps = data.reemplazos || [];
+    var rpBox = '<div class="erc-box erc-full"><div class="erc-inst-h"><h4 style="margin:0">Reemplazos de unidad</h4>' +
+      '<button class="erc-btn erc-btn--chico" data-acc="rpDesdeReclamo">Registrar reemplazo</button></div>' +
+      (rps.length ? rps.map(function (x) {
+        return '<div class="erc-inst" data-rp="' + esc(x.id) + '" style="cursor:pointer"><div class="erc-inst-h"><div><span class="erc-tag erc-tag--elk">' + esc(x.id) + '</span> ' +
+          fDia(x.fecha) + ' · ' + esc(x.productoRetirado) + ' → ' + esc(x.productoEntregado || 'sin dato') + '</div>' +
+          '<span class="erc-tag erc-tag--' + claseDevolucion(x.devolucion) + '">' + esc(txtDevolucion(x.devolucion)) + '</span></div>' +
+          '<div class="erc-mut">Unidad nueva de: ' + esc(x.origen) + (x.tecnico ? ' · ' + esc(x.tecnico) : '') + '</div></div>';
+      }).join('') : '<p class="erc-mut" style="margin:0">Sin reemplazos registrados para este reclamo.</p>') + '</div>';
+
     var hist = '<div class="erc-box erc-full"><h4>Historial</h4><ul class="erc-hist">' +
       (data.historial.length ? data.historial.slice(0, 40).map(function (h) {
         return '<li><span class="erc-mut">' + fHora(h.fecha) + ' · ' + esc(h.origen || '') + '</span><br><b>' + esc(h.campo) + '</b>: ' +
@@ -473,7 +510,7 @@
       '<div class="erc-dh"><div><h3>' + esc(r.id) + ' · ' + esc(r.nombre || '') + '</h3>' +
       '<span class="erc-tag erc-tag--' + claseEstado(r.estado) + '" style="margin-top:6px">' + esc(r.estado) + '</span></div>' +
       '<button class="erc-btn erc-btn--sec erc-btn--chico" data-acc="cerrar">Cerrar ✕</button></div>' +
-      '<div class="erc-dgrid">' + cliente + falla + inst + gestion + hist + '</div>' +
+      '<div class="erc-dgrid">' + cliente + falla + inst + gestion + rpBox + hist + '</div>' +
       '<div class="erc-save"><span class="erc-mut" id="erc-dirty"></span>' +
       '<button class="erc-btn" data-acc="guardar">Guardar cambios</button></div>';
 
@@ -555,10 +592,171 @@
     }).catch(function (err) { toast(err.message, true); });
   }
 
+  // ---------------------------------------------------------------- reemplazos
+  function cargarReemplazos() {
+    return api('reemplazos').then(function (d) {
+      S.rp.lista = d.lista;
+      if (S.vista === 'reemplazos' && !S.det) pintarReemplazos();
+    }).catch(function (err) { toast(err.message, true); });
+  }
+
+  function pintarReemplazos() {
+    if (!S.rp.lista) {
+      $('#erc-main').innerHTML = tabs() + '<div class="erc-vacio"><span class="erc-spin"></span> Cargando reemplazos…</div>';
+      cargarReemplazos();
+      return;
+    }
+    var L = S.rp.lista;
+    var cuenta = {
+      pendientes: L.filter(function (x) { return x.devolucion === 'Pendiente'; }).length,
+      instalador: L.filter(function (x) { return x.origen === 'Stock instalador'; }).length,
+      todos: L.length
+    };
+    var etiquetas = { pendientes: 'Devolución pendiente', instalador: 'Del stock del instalador', todos: 'Todos' };
+    var chips = ['pendientes', 'instalador', 'todos'].map(function (k) {
+      return '<button class="erc-chip' + (S.rp.filtro === k ? ' erc-chip--on' : '') + '" data-rpfiltro="' + k + '">' + etiquetas[k] + '<b>' + cuenta[k] + '</b></button>';
+    }).join('');
+    var q = S.rp.q.trim().toLowerCase();
+    var filas = L.filter(function (x) {
+      if (S.rp.filtro === 'pendientes' && x.devolucion !== 'Pendiente') return false;
+      if (S.rp.filtro === 'instalador' && x.origen !== 'Stock instalador') return false;
+      if (!q) return true;
+      return [x.id, x.reclamo, x.cliente, x.whatsapp, x.productoRetirado, x.productoEntregado, x.tecnico, x.elk, x.pedido]
+        .join(' ').toLowerCase().indexOf(q) !== -1;
+    });
+    $('#erc-main').innerHTML = tabs() +
+      '<div class="erc-top"><div class="erc-chips">' + chips + '</div>' +
+      '<div class="erc-tools"><input id="erc-rq" type="search" placeholder="Buscar: RP, RT, cliente, producto, técnico…" value="' + esc(S.rp.q) + '">' +
+      '<button class="erc-btn erc-btn--sec erc-btn--chico" data-acc="refrescarRp" title="Actualizar">↻</button>' +
+      '<button class="erc-btn erc-btn--chico" data-acc="nuevoRp">+ Cargar reemplazo</button></div></div>' +
+      '<div class="erc-list">' + (filas.length ? filas.map(filaRp).join('') :
+        '<div class="erc-vacio">' + (L.length ? 'No hay reemplazos con este filtro.' : 'Todavía no hay reemplazos registrados. Registralos desde la ficha de un reclamo o con "+ Cargar reemplazo".') + '</div>') +
+      '</div>';
+    var inp = $('#erc-rq');
+    inp.addEventListener('input', function () {
+      S.rp.q = inp.value;
+      var pos = inp.selectionStart;
+      pintarReemplazos();
+      var nuevo = $('#erc-rq'); nuevo.focus(); try { nuevo.setSelectionRange(pos, pos); } catch (e) { /* nada */ }
+    });
+  }
+
+  function filaRp(x) {
+    return '<div class="erc-row" data-rp="' + esc(x.id) + '">' +
+      '<div><div class="erc-id">' + esc(x.id) + '</div><div class="erc-mut">' + fDia(x.fecha) + '</div></div>' +
+      '<div><div>' + esc(x.cliente || '—') + '</div><div class="erc-mut">' + (x.reclamo ? 'Reclamo ' + esc(x.reclamo) : 'Carga manual') + (x.elk ? ' · ' + esc(x.elk) : '') + '</div></div>' +
+      '<div><div>' + esc(x.productoRetirado) + '</div><div class="erc-mut">→ ' + esc(x.productoEntregado || 'sin dato') + ' · de ' + esc(x.origen) + '</div></div>' +
+      '<div style="text-align:right"><span class="erc-tag erc-tag--' + claseDevolucion(x.devolucion) + '">' + esc(txtDevolucion(x.devolucion)) + '</span>' +
+      (x.tecnico ? '<div class="erc-mut" style="margin-top:6px">' + esc(x.tecnico) + '</div>' : '') + '</div></div>';
+  }
+
+  function rpPorId(id) {
+    var fuentes = [(S.det && S.det.data && S.det.data.reemplazos) || [], S.rp.lista || []];
+    for (var i = 0; i < fuentes.length; i++) {
+      for (var j = 0; j < fuentes[i].length; j++) if (fuentes[i][j].id === id) return fuentes[i][j];
+    }
+    return null;
+  }
+
+  function rpDesdeReclamo() {
+    if (hayCambios()) { toast('Guardá los cambios del reclamo antes de registrar el reemplazo.', true); return; }
+    var r = S.det.data.reclamo;
+    var inst = S.det.data.instalaciones[0] || {};
+    abrirRp({
+      fecha: hoyISO(), reclamo: r.id, cliente: r.nombre, whatsapp: r.whatsapp, canal: r.canal, pedido: r.pedido,
+      elk: inst.num || '', productoRetirado: r.producto, productoEntregado: r.productoNuevo || r.producto,
+      tipoFalla: r.tipoFalla, diagnostico: r.diagnostico, tecnico: r.tecnico || inst.instalador || '', devolucion: 'Pendiente'
+    });
+  }
+
+  function abrirRp(d) {
+    d = d || {};
+    var cfg = S.cfg;
+    var tecnicos = cfg.tecnicos.map(function (t) { return t.nombre; });
+    var desdeReclamo = !!(d.reclamo && !d.id && S.det);
+    function c(k, label, html, full) { return campo('rp-' + k, label, html, full); }
+    function inp(k, extra) { return '<input id="erc-f-rp-' + k + '" data-rp-k="' + k + '" value="' + esc(d[k] || '') + '"' + (extra || '') + '>'; }
+    function sel(k, lista, vacio) { return '<select id="erc-f-rp-' + k + '" data-rp-k="' + k + '">' + opciones(lista, d[k] || '', vacio) + '</select>'; }
+
+    var m = document.createElement('div');
+    m.className = 'erc erc-modal';
+    m.style.margin = '0';
+    m.innerHTML = '<div class="erc-modal-box">' +
+      '<div class="erc-dh"><h3>' + (d.id ? 'Reemplazo ' + esc(d.id) : 'Registrar reemplazo de unidad') + '</h3>' +
+      '<button class="erc-btn erc-btn--sec erc-btn--chico" data-rpacc="cerrar">Cerrar ✕</button></div>' +
+      '<div class="erc-modal-body">' +
+      '<div class="erc-sec">Unidades</div><div class="erc-two">' +
+      c('fecha', 'Fecha del reemplazo *', '<input id="erc-f-rp-fecha" type="date" data-rp-k="fecha" value="' + inputFecha(d.fecha || hoyISO()) + '">') +
+      c('origen', 'Origen de la unidad nueva *', sel('origen', RP_ORIGENES, '— Elegí —')) +
+      c('productoRetirado', 'Producto retirado (con falla) *', sel('productoRetirado', cfg.productos, '— Elegí —')) +
+      c('productoEntregado', 'Producto entregado', sel('productoEntregado', cfg.productos, '—')) +
+      c('tecnico', 'Técnico / instalador', sel('tecnico', tecnicos, '— Sin asignar —')) +
+      c('elk', 'Instalación ELK', inp('elk', ' placeholder="ELK-1036"')) +
+      '</div>' +
+      '<div class="erc-sec">Unidad con falla</div><div class="erc-two">' +
+      c('devolucion', 'Devolución al depósito', sel('devolucion', RP_DEVOLUCION)) +
+      c('fechaRecepcion', 'Fecha de recepción en depósito', '<input id="erc-f-rp-fechaRecepcion" type="date" data-rp-k="fechaRecepcion" value="' + inputFecha(d.fechaRecepcion) + '">') +
+      c('tipoFalla', 'Tipo de falla', sel('tipoFalla', cfg.tiposFalla || [], '—')) +
+      '<div></div>' +
+      c('diagnostico', 'Diagnóstico', '<textarea id="erc-f-rp-diagnostico" data-rp-k="diagnostico">' + esc(d.diagnostico || '') + '</textarea>', true) +
+      '</div>' +
+      '<div class="erc-sec">Cliente y reclamo</div><div class="erc-two">' +
+      c('reclamo', 'ID de reclamo (vacío si no hay)', inp('reclamo', ' placeholder="RT-0001"' + (desdeReclamo ? ' readonly' : ''))) +
+      c('cliente', 'Cliente', inp('cliente')) +
+      c('whatsapp', 'WhatsApp', inp('whatsapp', ' inputmode="tel"')) +
+      c('canal', 'Canal de compra', sel('canal', CANALES, '—')) +
+      c('pedido', 'Nº de pedido / venta', inp('pedido')) +
+      '<div></div>' +
+      c('notas', 'Notas', '<textarea id="erc-f-rp-notas" data-rp-k="notas">' + esc(d.notas || '') + '</textarea>', true) +
+      '</div>' +
+      (d.id ? '<p class="erc-mut">Cargado por ' + esc(d.cargadoPor || '—') + ' el ' + fHora(d.creado) + ' · última actualización ' + fHora(d.actualizado) + '</p>' : '') +
+      '</div>' +
+      '<div class="erc-modal-foot"><button class="erc-btn erc-btn--sec" data-rpacc="cerrar">Cancelar</button>' +
+      '<button class="erc-btn" data-rpacc="guardar">' + (d.id ? 'Guardar cambios' : 'Registrar reemplazo') + '</button></div></div>';
+
+    m.addEventListener('click', function (e) {
+      if (e.target === m) { m.remove(); return; }
+      var b = e.target.closest('[data-rpacc]');
+      if (!b) return;
+      if (b.getAttribute('data-rpacc') === 'cerrar') { m.remove(); return; }
+      var datos = { id: d.id || '' };
+      $$('[data-rp-k]', m).forEach(function (el) { datos[el.getAttribute('data-rp-k')] = el.value; });
+      if (!datos.productoRetirado) { toast('Elegí el producto retirado.', true); return; }
+      if (!datos.origen) { toast('Elegí el origen de la unidad nueva.', true); return; }
+      b.disabled = true; b.innerHTML = '<span class="erc-spin"></span> Guardando';
+      api('reemplazoGuardar', { datos: datos }).then(function (res) {
+        toast('Reemplazo ' + res.id + ' guardado ✓');
+        m.remove();
+        S.rp.lista = res.lista;
+        if (S.det && datos.reclamo && datos.reclamo.toUpperCase() === S.det.id) {
+          api('detalle', { id: S.det.id }).then(function (det) {
+            pintarDetalle(det);
+            actualizarEnLista(det.reclamo, det.instalaciones);
+          });
+        } else if (S.vista === 'reemplazos' && !S.det) {
+          pintarReemplazos();
+        }
+      }).catch(function (err) {
+        toast(err.message, true);
+        b.disabled = false; b.textContent = d.id ? 'Guardar cambios' : 'Registrar reemplazo';
+      });
+    });
+    var dev = m.querySelector('#erc-f-rp-devolucion');
+    var fr = m.querySelector('#erc-f-rp-fechaRecepcion');
+    dev.addEventListener('change', function () {
+      if (dev.value === 'Recibida en depósito' && !fr.value) fr.value = inputFecha(hoyISO());
+      if (dev.value !== 'Recibida en depósito') fr.value = '';
+    });
+    document.body.appendChild(m);
+  }
+
   // ---------------------------------------------------------------- eventos
   function onClick(e) {
-    var t = e.target.closest('[data-filtro],[data-acc],[data-id],[data-asignar],[data-vincular],[data-desvincular]');
+    var t = e.target.closest('[data-filtro],[data-acc],[data-id],[data-asignar],[data-vincular],[data-desvincular],[data-vista],[data-rp],[data-rpfiltro]');
     if (!t) return;
+    if (t.hasAttribute('data-vista')) { S.vista = t.getAttribute('data-vista'); pintarLista(); return; }
+    if (t.hasAttribute('data-rpfiltro')) { S.rp.filtro = t.getAttribute('data-rpfiltro'); pintarReemplazos(); return; }
+    if (t.hasAttribute('data-rp')) { var rp = rpPorId(t.getAttribute('data-rp')); if (rp) abrirRp(rp); return; }
     if (t.hasAttribute('data-filtro')) { S.filtro = t.getAttribute('data-filtro'); pintarLista(); return; }
     if (t.hasAttribute('data-asignar')) {
       var sel = S.det.ov.querySelector('#erc-f-tecnico');
@@ -580,6 +778,9 @@
       else if (acc === 'cerrar') cerrarDetalle();
       else if (acc === 'guardar') guardar(t);
       else if (acc === 'buscarInst') buscarInstalacion();
+      else if (acc === 'nuevoRp') abrirRp({ fecha: hoyISO(), devolucion: 'Pendiente' });
+      else if (acc === 'refrescarRp') { S.rp.lista = null; pintarReemplazos(); }
+      else if (acc === 'rpDesdeReclamo') rpDesdeReclamo();
       return;
     }
     if (t.hasAttribute('data-id')) abrirDetalle(t.getAttribute('data-id'));

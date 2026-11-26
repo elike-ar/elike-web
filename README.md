@@ -46,6 +46,14 @@ Apps Script "Elike - Reclamos técnicos" (cuenta gustavo.retegui@elike-ar.com)
 - **Vínculo con la instalación**: cada reclamo busca automáticamente su instalación ELIKE por **teléfono** (normalizado: +54, 9, 0 y 15 no importan). Si no coincide, se busca a mano (ELK-xxxx, nombre o teléfono) y se vincula. Los vínculos manuales quedan en la hoja *Vínculos* de la planilla de reclamos.
 - Cada cambio queda en la hoja *Historial* con quién lo hizo.
 
+### Reemplazos de unidades
+
+Pestaña **Reemplazos de unidades** del panel y hoja **Reemplazos** de la planilla (`apps-script/Reemplazos.gs`). Una fila por unidad reemplazada (RP-0001…):
+
+- Desde la ficha de un reclamo → **Registrar reemplazo** (datos del reclamo precargados). El reclamo queda con "¿Cambio de producto?" = Sí, producto entregado y fecha del cambio, y el movimiento va al Historial.
+- Sin reclamo → **+ Cargar reemplazo** (carga manual).
+- Se registra el **origen de la unidad nueva** (Depósito / Stock instalador) y la **devolución de la unidad con falla** (Pendiente / Recibida en depósito / No aplica + fecha de recepción). Filtros: devolución pendiente, del stock del instalador, todos.
+
 ### Seguridad
 
 - El PIN del panel (propiedad `PANEL_PIN` del Apps Script, 8 caracteres) se valida **en el servidor en cada acción**. Después de 10 intentos fallidos el panel se bloquea 10 minutos.

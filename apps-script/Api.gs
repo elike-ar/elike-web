@@ -112,8 +112,11 @@ function api_(req) {
       return enriquecer_(panelDetalle(pin, id));
     }
 
-    default:
+    default: {
+      const rp = apiReemplazos_(req); // Reemplazos.gs
+      if (rp !== undefined) return rp;
       throw new Error('Acción desconocida.');
+    }
   }
 }
 
@@ -122,6 +125,7 @@ function api_(req) {
 function enriquecer_(det) {
   const inst = datosInstalaciones_(false);
   det.instalaciones = instalacionesDe_(det.reclamo.id, det.reclamo.whatsapp, det.reclamo.pedido, inst, vinculos_());
+  det.reemplazos = reemplazosDe_(det.reclamo.id); // Reemplazos.gs
   return det;
 }
 
