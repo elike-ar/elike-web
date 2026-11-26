@@ -65,14 +65,16 @@
     w.className = 'erf';
     w.innerHTML =
       '<header class="erf-hero"><span class="erf-pill">' + TXT.pill + '</span><h1>' + TXT.h1 + '</h1><p>' + TXT.p + '</p></header>' +
-      '<div class="erf-wrap"><div class="erf-card"><iframe title="' + TXT.h1 + '" src="' + src.replace(/"/g, '&quot;') + '"></iframe></div>' +
-      '<p class="erf-alt">' + TXT.alt + '</p></div>';
+      '<div class="erf-wrap"><div class="erf-card"><iframe credentialless title="' + TXT.h1 + '" src="' + src.replace(/"/g, '&quot;') + '"></iframe></div>' +
+      '<p class="erf-alt">' + TXT.alt + '<br>¿No se ve el formulario? <a href="' + src.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener">Abrilo en otra pestaña</a>.</p></div>';
 
     var cont = document.querySelector('body > .container');
     if (cont) { cont.innerHTML = ''; cont.appendChild(w); }
     else { var f = document.querySelector('footer'); (f ? f.parentNode : document.body).insertBefore(w, f || null); }
 
     var frame = w.querySelector('iframe');
+    // credentialless: Google lo abre como visitante anónimo (como lo ve el cliente). Evita el error
+    // "No se pudo abrir el archivo" cuando el navegador tiene varias cuentas de Google abiertas.
     // El formulario avisa su alto por postMessage para que no haya doble scroll.
     window.addEventListener('message', function (e) {
       if (!/(^https:\/\/script\.google\.com$)|googleusercontent\.com$/.test(e.origin)) return;
