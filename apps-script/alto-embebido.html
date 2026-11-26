@@ -1,0 +1,18 @@
+<!-- ELIKE: pegado al final de Formulario.html y Seguimiento.html (antes de </body>).
+     Avisa el alto del contenido a elike.com.ar/reclamo/ y /seguimiento/ para ajustar el iframe. -->
+<script>
+(function () {
+  document.documentElement.style.minHeight = '0';
+  document.body.style.minHeight = '0';
+  var ultimo = 0;
+  function avisar() {
+    var h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    if (Math.abs(h - ultimo) < 4) return;
+    ultimo = h;
+    try { window.top.postMessage({ erc: 'alto', h: h }, '*'); } catch (e) { /* sin página contenedora */ }
+  }
+  window.addEventListener('load', avisar);
+  if (window.ResizeObserver) new ResizeObserver(avisar).observe(document.body);
+  setInterval(avisar, 1000);
+})();
+</script>

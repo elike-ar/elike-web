@@ -2,6 +2,24 @@
 
 Código propio de ELIKE que corre sobre la tienda de Tiendanube (elike.com.ar).
 
+## Cargador — `elike.js`
+
+Es lo único que va en el sello del footer de Tiendanube (todas las páginas). Pesa ~2 KB y **no hace nada** fuera de estas rutas, que además marca con `noindex`:
+
+| Ruta | Qué muestra |
+|---|---|
+| `/panel-reclamos/` | Panel interno (carga `reclamos/panel.js`) |
+| `/reclamo/` | Formulario de reclamo técnico para clientes (Apps Script embebido) |
+| `/seguimiento/` | Seguimiento del reclamo para clientes (Apps Script embebido; acepta `?id=`) |
+
+Línea del sello:
+```html
+<script src="https://cdn.jsdelivr.net/gh/elike-ar/elike-web@<commit>/elike.js" defer></script>
+```
+El cargador toma `reclamos/panel.js` del mismo commit, así que hay un solo hash para actualizar.
+
+Para embeber el formulario, el `doGet` del Apps Script usa `XFrameOptionsMode.ALLOWALL` y `Formulario.html` / `Seguimiento.html` llevan al final `apps-script/alto-embebido.html` (avisa el alto para que no haya doble scroll).
+
 ## Panel de reclamos — `reclamos/panel.js`
 
 Panel interno para gestionar los reclamos técnicos. Está en `elike.com.ar/panel-reclamos/`.
@@ -34,17 +52,10 @@ Apps Script "Elike - Reclamos técnicos" (cuenta gustavo.retegui@elike-ar.com)
 - El código de este repo no tiene datos ni claves: los datos solo los devuelve el Apps Script con el PIN correcto.
 - Para cambiar el PIN: en la planilla de reclamos, menú del sistema → *Cambiar PIN* (o ejecutar `cambiarPin()`).
 
-### Estado actual (26/11/2026)
-
-Mientras no exista el repo en GitHub, el código de `reclamos/panel.js` está **pegado completo** dentro del sello del footer (Tiendanube → Diseño → Editar diseño → Pie de página → "Código Javascript o HTML del sello"), debajo de la línea de Praxis. Cuando el repo esté publicado, ese bloque `<script>…</script>` se reemplaza por la línea de jsDelivr de abajo.
-
 ### Publicar un cambio
 
 1. Commit y push a `main`.
-2. Copiar el hash del commit y actualizar el sello del footer en Tiendanube:
-   ```html
-   <script src="https://cdn.jsdelivr.net/gh/elike-ar/elike-web@<commit>/reclamos/panel.js" defer></script>
-   ```
+2. Copiar el hash del commit y actualizarlo en la línea de `elike.js` del sello (Tiendanube → Diseño → Editar diseño → Pie de página → "Código Javascript o HTML del sello", debajo de la línea de Praxis).
    Fijar el commit (en vez de `@main`) evita la caché de jsDelivr y permite volver atrás cambiando solo el hash.
 
 ### Cambios en el Apps Script (`apps-script/Api.gs`)
