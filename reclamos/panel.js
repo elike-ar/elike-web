@@ -103,6 +103,11 @@
     if (d.length === 10) d = '549' + d;
     return 'https://wa.me/' + d;
   }
+  function orden(v) {
+    var d = String(v || '').trim();
+    if (!d) return '';
+    return d.replace(/\D/g, '').length > 8 ? 'Venta ML ' + d : 'Orden #' + d.replace(/^#/, '');
+  }
   function esFinal(estado) { return S.cfg && S.cfg.estadosFinales.indexOf(estado) !== -1; }
   function claseEstado(e) {
     return {
@@ -290,7 +295,7 @@
       if (S.filtro === 'abiertos' && esFinal(r.estado)) return false;
       if (S.filtro !== 'abiertos' && S.filtro !== 'todos' && r.estado !== S.filtro) return false;
       if (!q) return true;
-      return [r.id, r.nombre, r.whatsapp, r.producto, r.tecnico, r.pedido, r.direccion, r.instaladoPorElike]
+      return [r.id, r.nombre, r.whatsapp, r.producto, r.tecnico, r.pedido, r.direccion, r.instaladoPorElike, r.ordenElike]
         .join(' ').toLowerCase().indexOf(q) !== -1;
     });
   }
@@ -336,7 +341,7 @@
       '<div><div>' + esc(r.nombre || '—') + '</div><div class="erc-mut">' + esc(r.producto || '') + (r.tipoFalla ? ' · ' + esc(r.tipoFalla) : '') + '</div></div>' +
       '<div><div>' + (r.tecnico ? esc(r.tecnico) : '<span class="erc-mut">Sin técnico</span>') + '</div><div class="erc-mut">' + esc(visita || (r.direccion || '')) + '</div></div>' +
       '<div style="text-align:right"><span class="erc-tag erc-tag--' + claseEstado(r.estado) + '">' + esc(r.estado) + '</span>' +
-      (r.instaladoPorElike ? '<div style="margin-top:6px"><span class="erc-tag erc-tag--elk" title="Instalación ELIKE vinculada">' + esc(r.instaladoPorElike) + '</span></div>' : '') +
+      (r.instaladoPorElike ? '<div style="margin-top:6px"><span class="erc-tag erc-tag--elk" title="Instalación ELIKE vinculada">' + esc(r.instaladoPorElike) + (r.ordenElike ? ' · ' + esc(orden(r.ordenElike)) : '') + '</span></div>' : '') +
       (alerta ? '<div style="margin-top:6px"><span class="erc-tag erc-tag--alerta">' + dias + ' días abierto</span></div>' : '') +
       '</div></div>';
   }
@@ -424,9 +429,10 @@
         var quitar = s.vinculo === 'manual'
           ? '<button class="erc-btn erc-btn--sec erc-btn--chico" data-desvincular="' + esc(s.num) + '">Quitar vínculo</button>' : '';
         return '<div class="erc-inst"><div class="erc-inst-h"><div><span class="erc-tag erc-tag--elk">' + esc(s.num) + '</span>' +
-          '<span class="erc-mut">' + esc(s.origen) + ' · ' + (s.vinculo === 'manual' ? 'vinculada a mano' : 'coincide por teléfono') + '</span></div>' +
+          '<span class="erc-mut">' + esc(s.origen) + ' · ' + ({ manual: 'vinculada a mano', pedido: 'coincide por nº de pedido', telefono: 'coincide por teléfono' }[s.vinculo] || '') + '</span></div>' +
           '<div>' + asignar + ' ' + quitar + '</div></div>' +
           '<dl class="erc-kv">' +
+          '<dt>Nº de orden</dt><dd><b>' + esc(orden(s.nroOrden) || 'Sin dato') + '</b></dd>' +
           '<dt>Instalador</dt><dd><b>' + esc(s.instalador || 'Sin asignar') + '</b></dd>' +
           '<dt>Estado</dt><dd>' + esc(s.estado) + (s.fechaInstalada ? ' · instalada el ' + fDia(s.fechaInstalada) : '') + '</dd>' +
           '<dt>Producto</dt><dd>' + esc(s.producto) + (s.cantidad > 1 ? ' ×' + esc(s.cantidad) : '') + '</dd>' +
@@ -437,7 +443,7 @@
     } else {
       inst += '<p class="erc-mut" style="margin:0">No encontré una instalación de ELIKE con el teléfono ' + esc(r.whatsapp || '') + '. Si la instalamos nosotros, buscala abajo y vinculala.</p>';
     }
-    inst += '<div style="display:flex;gap:8px;margin-top:12px"><input id="erc-bi" placeholder="Buscar instalación: ELK-1036, nombre o teléfono">' +
+    inst += '<div style="display:flex;gap:8px;margin-top:12px"><input id="erc-bi" placeholder="Buscar instalación: ELK-1036, nº de orden, nombre o teléfono">' +
       '<button class="erc-btn erc-btn--sec" data-acc="buscarInst">Buscar</button></div><div id="erc-bi-res"></div></div>';
 
     var gestion =
@@ -518,6 +524,7 @@
     var i = S.lista.findIndex(function (x) { return x.id === r.id; });
     r.instalaciones = inst.length;
     r.instaladoPorElike = inst.length ? inst[0].num : '';
+    r.ordenElike = inst.length ? inst[0].nroOrden : '';
     if (i !== -1) S.lista[i] = r;
     pintarLista();
   }
@@ -532,7 +539,7 @@
       var ya = S.det.data.instalaciones.map(function (s) { return s.num; });
       res.innerHTML = lista.length ? lista.map(function (s) {
         return '<div class="erc-inst"><div class="erc-inst-h"><div><span class="erc-tag erc-tag--elk">' + esc(s.num) + '</span> ' +
-          esc(s.nombre) + ' · ' + esc(s.tel) + '</div>' +
+          esc(s.nombre) + ' · ' + esc(s.tel) + (s.nroOrden ? ' · ' + esc(orden(s.nroOrden)) : '') + '</div>' +
           (ya.indexOf(s.num) === -1 ? '<button class="erc-btn erc-btn--chico" data-vincular="' + esc(s.num) + '">Vincular</button>' : '<span class="erc-mut">Ya vinculada</span>') +
           '</div><div class="erc-mut">' + esc(s.producto) + ' · ' + esc(s.direccion) + ' · ' + esc(s.instalador || 'sin instalador') + ' · ' + esc(s.estado) + '</div></div>';
       }).join('') : '<p class="erc-mut">Sin resultados.</p>';

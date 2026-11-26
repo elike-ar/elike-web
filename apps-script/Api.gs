@@ -55,9 +55,10 @@ function api_(req) {
       const inst = datosInstalaciones_(!!req.refrescar);
       const vinc = vinculos_();
       lista.forEach(r => {
-        const m = instalacionesDe_(r.id, r.whatsapp, inst, vinc);
+        const m = instalacionesDe_(r.id, r.whatsapp, r.pedido, inst, vinc);
         r.instalaciones = m.length;
         r.instaladoPorElike = m.length ? m[0].num : '';
+        r.ordenElike = m.length ? m[0].nroOrden : '';
       });
       return lista;
     }
@@ -74,8 +75,10 @@ function api_(req) {
       if (q.length < 3) return [];
       const qTel = claveTel_(q);
       const qNum = q.replace(/^elk-?/, '');
+      const qOrden = q.replace(/\D/g, '');
       return datosInstalaciones_(false).sols.filter(s =>
         String(s.numero) === qNum ||
+        (qOrden.length >= 3 && claveOrden_(s.nroOrden) === qOrden) ||
         (qTel.length >= 6 && s.clave.indexOf(qTel.slice(-8)) !== -1) ||
         String(s.nombre).toLowerCase().indexOf(q) !== -1
       ).slice(0, 15).map(limpiar_);
@@ -118,18 +121,24 @@ function api_(req) {
 
 function enriquecer_(det) {
   const inst = datosInstalaciones_(false);
-  det.instalaciones = instalacionesDe_(det.reclamo.id, det.reclamo.whatsapp, inst, vinculos_());
+  det.instalaciones = instalacionesDe_(det.reclamo.id, det.reclamo.whatsapp, det.reclamo.pedido, inst, vinculos_());
   return det;
 }
 
-/** Instalaciones de un reclamo: primero las vinculadas a mano, después las que coinciden por teléfono. */
-function instalacionesDe_(id, tel, inst, vinc) {
+/** Instalaciones de un reclamo: primero las vinculadas a mano, después las que coinciden por nº de pedido y por teléfono. */
+function instalacionesDe_(id, tel, pedido, inst, vinc) {
   const out = [];
   const vistos = {};
   (vinc[id] || []).forEach(num => {
     const s = inst.porNum[num];
     if (s && !vistos[num]) { vistos[num] = 1; out.push(Object.assign(limpiar_(s), { vinculo: 'manual' })); }
   });
+  const ko = claveOrden_(pedido);
+  if (ko) {
+    (inst.porOrden[ko] || []).forEach(s => {
+      if (!vistos[s.num]) { vistos[s.num] = 1; out.push(Object.assign(limpiar_(s), { vinculo: 'pedido' })); }
+    });
+  }
   const k = claveTel_(tel);
   if (k) {
     const cand = inst.porTel[k] || (k.length >= 8 ? inst.porTel8[k.slice(-8)] : null) || [];
@@ -172,7 +181,7 @@ function hojaVinculos_() {
 
 function datosInstalaciones_(refrescar) {
   const cache = CacheService.getScriptCache();
-  const KEY = 'api_inst_v1';
+  const KEY = 'api_inst_v2';
   let data = null;
   if (!refrescar) {
     const hit = cache.get(KEY);
@@ -205,6 +214,7 @@ function datosInstalaciones_(refrescar) {
         nombre: String(s.nombre || '').trim(),
         tel: String(s.tel || '').trim(),
         mail: String(s.mail || '').trim(),
+        nroOrden: String(s.nro_orden || '').trim(),
         producto: String(s.producto || '').trim(),
         cantidad: s.cantidad || '',
         direccion: [s.dir, s.ciudad, s.prov].map(x => String(x || '').trim()).filter(Boolean).join(', '),
@@ -217,9 +227,11 @@ function datosInstalaciones_(refrescar) {
     try { cache.put(KEY, JSON.stringify(data), API_CFG.CACHE_SEG); } catch (e) { /* demasiado grande para caché: se lee cada vez */ }
   }
   // Índices (no se cachean: se arman en memoria)
-  data.porNum = {}; data.porTel = {}; data.porTel8 = {};
+  data.porNum = {}; data.porTel = {}; data.porTel8 = {}; data.porOrden = {};
   data.sols.forEach(s => {
     data.porNum[s.num] = s;
+    const ko = claveOrden_(s.nroOrden);
+    if (ko) (data.porOrden[ko] = data.porOrden[ko] || []).push(s);
     if (s.clave) {
       (data.porTel[s.clave] = data.porTel[s.clave] || []).push(s);
       if (s.clave.length >= 8) {
@@ -266,6 +278,12 @@ function claveTel_(v) {
   }
   if (d.length === 8) d = '11' + d; // número de AMBA sin característica
   return d.length > 10 ? d.slice(-10) : d;
+}
+
+/** Nº de orden normalizado (solo dígitos): "#623" → "623"; ventas de Mercado Libre de 16 dígitos quedan igual. */
+function claveOrden_(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  return d.length >= 3 ? d : '';
 }
 
 /** Prueba rápida desde el editor: elegí "probarApi" en el menú y tocá Ejecutar. */
