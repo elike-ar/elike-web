@@ -11,6 +11,7 @@
  *   después de 10 intentos fallidos).
  * - Lee la planilla de Instalaciones (sistema PRAXIS) en SOLO LECTURA: técnicos y
  *   solicitudes instaladas, para vincular cada reclamo con su instalación por teléfono.
+ * - Estados: Recibido → Derivada al técnico (genera el WhatsApp al técnico) → Resuelto / No procede.
  * - Los vínculos manuales (cuando el teléfono no coincide) se guardan en la hoja "Vínculos"
  *   de la planilla de Reclamos.
  */
@@ -21,7 +22,19 @@ const API_CFG = {
   HOJA_INSTALADORES: 'Instaladores',
   HOJA_VINCULOS: 'Vínculos',
   CACHE_SEG: 300,
-  ORIGENES: { tn: 'Tiendanube', ml: 'Mercado Libre' }
+  ORIGENES: { tn: 'Tiendanube', ml: 'Mercado Libre' },
+  ESTADO_DERIVADA: 'Derivada al técnico',
+  // Al derivar, la carpeta de fotos/videos de ESE reclamo se comparte por link (solo lectura)
+  // para que el técnico la pueda abrir desde el WhatsApp. Poner false para no compartir.
+  COMPARTIR_ADJUNTOS: true
+};
+
+// Estados que se dejaron de usar → estado nuevo (ver migrarEstados)
+const ESTADOS_VIEJOS = {
+  'En análisis': 'Recibido',
+  'Visita agendada': 'Derivada al técnico',
+  'Esperando repuesto / cambio': 'Derivada al técnico',
+  'Cerrado': 'Resuelto'
 };
 
 function doPost(e) {
@@ -66,8 +79,30 @@ function api_(req) {
     case 'detalle':
       return enriquecer_(panelDetalle(pin, req.id)); // valida PIN
 
-    case 'guardar':
-      return enriquecer_(panelGuardar(pin, req.id, req.cambios, req.quien)); // valida PIN
+    case 'guardar': {
+      verificarPin_(pin);
+      const antes = buscarFila_(req.id);
+      if (!antes) throw new Error('No existe el reclamo ' + req.id);
+      const c = req.cambios || {};
+      const estadoNuevo = c.estado !== undefined ? c.estado : antes.datos[IDX.estado];
+      const tecnicoNuevo = c.tecnico !== undefined ? String(c.tecnico || '').trim() : String(antes.datos[IDX.tecnico] || '').trim();
+      const derivar = estadoNuevo === API_CFG.ESTADO_DERIVADA &&
+        (antes.datos[IDX.estado] !== API_CFG.ESTADO_DERIVADA || tecnicoNuevo !== String(antes.datos[IDX.tecnico] || '').trim());
+      if (estadoNuevo === API_CFG.ESTADO_DERIVADA) {
+        if (!tecnicoNuevo) throw new Error('Para derivar el reclamo, elegí el técnico.');
+        if (derivar && !tecnicoPorNombre_(tecnicoNuevo).wa) throw new Error(tecnicoNuevo + ' no tiene teléfono cargado en la pestaña Instaladores.');
+      }
+      const det = enriquecer_(panelGuardar(pin, req.id, c, req.quien));
+      if (derivar) det.derivacion = derivacion_(det, req.quien);
+      return det;
+    }
+
+    case 'derivacion': { // reenviar el WhatsApp al técnico
+      const det = enriquecer_(panelDetalle(pin, req.id)); // valida PIN
+      if (det.reclamo.estado !== API_CFG.ESTADO_DERIVADA || !det.reclamo.tecnico) throw new Error('El reclamo no está derivado a un técnico.');
+      det.derivacion = derivacion_(det, req.quien);
+      return det;
+    }
 
     case 'buscarInstalacion': {
       verificarPin_(pin);
@@ -181,11 +216,84 @@ function hojaVinculos_() {
   return sh;
 }
 
+// ---------- Derivación al técnico por WhatsApp ----------
+
+function tecnicoPorNombre_(nombre) {
+  nombre = String(nombre || '').trim();
+  return datosInstalaciones_(false).tecnicos.filter(t => t.nombre === nombre)[0] ||
+    datosInstalaciones_(true).tecnicos.filter(t => t.nombre === nombre)[0] || {};
+}
+
+/** Arma el WhatsApp para el técnico con los datos del cliente y la falla; lo deja en el Historial. */
+function derivacion_(det, quien) {
+  const r = det.reclamo;
+  const t = tecnicoPorNombre_(r.tecnico);
+  if (!t.wa) throw new Error(r.tecnico + ' no tiene teléfono cargado en la pestaña Instaladores.');
+  const tz = Session.getScriptTimeZone();
+  const dia = v => v ? Utilities.formatDate(new Date(v), tz, 'dd/MM/yyyy') : '';
+  const kCli = claveTel_(r.whatsapp);
+  const waCliente = kCli.length === 10 ? 'https://wa.me/549' + kCli : (r.whatsapp || '—');
+
+  let carpeta = '';
+  if (det.adjuntos && det.adjuntos.length && /folders\/([\w-]+)/.test(String(r.carpeta || ''))) {
+    carpeta = r.carpeta;
+    if (API_CFG.COMPARTIR_ADJUNTOS) {
+      try {
+        DriveApp.getFolderById(String(r.carpeta).match(/folders\/([\w-]+)/)[1])
+          .setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (e) { carpeta = ''; } // la política de la cuenta no permite compartir por link
+    }
+  }
+  const inst = (det.instalaciones || [])[0];
+  const compra = [r.canal, dia(r.fechaCompra), r.pedido ? 'pedido ' + r.pedido : ''].filter(Boolean).join(' · ');
+  const L = [
+    'Hola ' + String(t.nombre).split(' ')[0] + '! Te derivamos un reclamo técnico de ELIKE.',
+    '',
+    '*Reclamo:* ' + r.id,
+    '*Cliente:* ' + (r.nombre || '—'),
+    '*WhatsApp del cliente:* ' + waCliente,
+    '*Dirección:* ' + (r.direccion || '—'),
+    '*Producto:* ' + (r.producto || '—'),
+    '*Compra:* ' + (compra || '—')
+  ];
+  if (inst) L.push('*Instalación ELIKE:* ' + inst.num + (inst.instalador ? ' · ' + inst.instalador : '') + (inst.fechaInstalada ? ' · instalada el ' + dia(inst.fechaInstalada) : ''));
+  L.push('', '*Falla reportada:* ' + (r.tipoFalla || '—'), String(r.falla || '').slice(0, 900));
+  if (carpeta) L.push('', '*Fotos y videos del cliente:* ' + carpeta);
+  else if (det.adjuntos && det.adjuntos.length) L.push('', '(El cliente adjuntó ' + det.adjuntos.length + ' archivo/s; te los pasamos aparte.)');
+  L.push('', 'Por favor contactá al cliente para profundizar el diagnóstico o coordinar la visita, y avisanos la fecha. ¡Gracias!');
+
+  historial_(r.id, 'WhatsApp al técnico', '', t.nombre, txt_(quien, 40) || 'Panel');
+  return { tecnico: t.nombre, wa: 'https://wa.me/' + t.wa + '?text=' + encodeURIComponent(L.join('\n')) };
+}
+
+/**
+ * Pasa los reclamos con estados que ya no existen al estado nuevo (ESTADOS_VIEJOS) y lo deja en el Historial.
+ * Ejecutar UNA vez desde el editor después de actualizar ESTADOS en Código.gs.
+ */
+function migrarEstados() {
+  const sh = hoja_(HOJA.RECLAMOS);
+  const n = sh.getLastRow();
+  if (n < 2) return;
+  const rango = sh.getRange(2, IDX.estado + 1, n - 1, 1);
+  const vals = rango.getValues();
+  const ids = sh.getRange(2, 1, n - 1, 1).getValues();
+  let cambios = 0;
+  vals.forEach((v, i) => {
+    const nuevo = ESTADOS_VIEJOS[v[0]];
+    if (!nuevo) return;
+    historial_(ids[i][0], 'Estado', v[0], nuevo, 'Migración de estados');
+    v[0] = nuevo;
+    cambios++;
+  });
+  rango.setValues(vals);
+  Logger.log('Reclamos migrados: ' + cambios);
+}
+
 // ---------- Lectura de la planilla de Instalaciones (solo lectura) ----------
 
 function datosInstalaciones_(refrescar) {
   const cache = CacheService.getScriptCache();
-  const KEY = 'api_inst_v2';
+  const KEY = 'api_inst_v3';
   let data = null;
   if (!refrescar) {
     const hit = cache.get(KEY);
@@ -201,8 +309,10 @@ function datosInstalaciones_(refrescar) {
     const porNombre = {};
     inst.filter(i => String(i.activo).trim().toLowerCase() === 'si' && !/prueba/i.test(i.nombre)).forEach(i => {
       const nombre = String(i.nombre).trim();
-      const t = porNombre[nombre] || (porNombre[nombre] = { nombre: nombre, ids: [], zonas: [] });
+      const t = porNombre[nombre] || (porNombre[nombre] = { nombre: nombre, ids: [], zonas: [], wa: '' });
       t.ids.push(String(i.id));
+      const k = claveTel_(i.tel);
+      if (!t.wa && k.length === 10) t.wa = '549' + k;
       String(i.zonas || '').split(',').map(z => z.trim()).filter(Boolean)
         .forEach(z => { if (t.zonas.indexOf(z) === -1) t.zonas.push(z); });
     });

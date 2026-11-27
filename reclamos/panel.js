@@ -32,6 +32,7 @@
   var RP_ORIGENES = ['Depósito', 'Stock instalador'];
   var RP_DEVOLUCION = ['Pendiente', 'Recibida en depósito', 'No aplica'];
   var CANALES = ['Tienda online ELIKE', 'Mercado Libre', 'Otro'];
+  var DERIVADA = 'Derivada al técnico';
 
   function leer(k) {
     try { return sessionStorage.getItem(k) || localStorage.getItem(k) || ''; } catch (e) { return ''; }
@@ -125,7 +126,7 @@
   function esFinal(estado) { return S.cfg && S.cfg.estadosFinales.indexOf(estado) !== -1; }
   function claseEstado(e) {
     return {
-      'Recibido': 'nuevo', 'En análisis': 'analisis', 'Visita agendada': 'visita',
+      'Recibido': 'nuevo', 'Derivada al técnico': 'visita', 'En análisis': 'analisis', 'Visita agendada': 'visita',
       'Esperando repuesto / cambio': 'espera', 'Resuelto': 'ok', 'Cerrado': 'cerrado', 'No procede': 'cerrado'
     }[e] || 'nuevo';
   }
@@ -473,8 +474,12 @@
     inst += '<div style="display:flex;gap:8px;margin-top:12px"><input id="erc-bi" placeholder="Buscar instalación: ELK-1036, nº de orden, nombre o teléfono">' +
       '<button class="erc-btn erc-btn--sec" data-acc="buscarInst">Buscar</button></div><div id="erc-bi-res"></div></div>';
 
+    var derivada = r.estado === DERIVADA && r.tecnico;
     var gestion =
-      '<div class="erc-box erc-full"><h4>Técnico y visita</h4><div class="erc-two">' +
+      '<div class="erc-box erc-full"><div class="erc-inst-h"><h4 style="margin:0">Técnico y visita</h4>' +
+      (derivada ? '<button class="erc-btn erc-btn--wa erc-btn--chico" data-acc="waTecnico">Reenviar WhatsApp a ' + esc(r.tecnico) + '</button>' : '') + '</div>' +
+      '<p class="erc-mut" style="margin:6px 0 10px">Al pasar el reclamo a <b>' + DERIVADA + '</b> y guardar, se abre WhatsApp con los datos del cliente y la falla para el técnico elegido.</p>' +
+      '<div class="erc-two">' +
       campo('estado', 'Estado', '<select id="erc-f-estado" data-k="estado">' + opciones(cfg.estados, r.estado) + '</select>') +
       campo('tecnico', 'Técnico / instalador', '<select id="erc-f-tecnico" data-k="tecnico">' + opciones(tecnicos, r.tecnico, '— Sin asignar —') + '</select>') +
       campo('fechaVisita', 'Fecha y hora de visita', '<input id="erc-f-fechaVisita" type="datetime-local" data-k="fechaVisita" data-tipo="fechahora" value="' + inputFechaHora(r.fechaVisita) + '">') +
@@ -546,14 +551,50 @@
   function guardar(btn) {
     var c = cambios();
     if (!Object.keys(c).length) { toast('No hay cambios para guardar.'); return; }
+    var r = S.det.data.reclamo;
+    var estado = c.estado !== undefined ? c.estado : r.estado;
+    var tecnico = c.tecnico !== undefined ? c.tecnico : (r.tecnico || '');
+    if (estado === DERIVADA && !tecnico) {
+      toast('Para derivar el reclamo, elegí el técnico.', true);
+      var sel = S.det.ov.querySelector('#erc-f-tecnico'); if (sel) sel.focus();
+      return;
+    }
+    var deriva = estado === DERIVADA && (r.estado !== DERIVADA || tecnico !== (r.tecnico || ''));
+    var w = deriva ? ventanaWa(tecnico) : null; // se abre ya (con el clic) para que el navegador no la bloquee
     btn.disabled = true; btn.innerHTML = '<span class="erc-spin"></span> Guardando';
     api('guardar', { id: S.det.id, cambios: c }).then(function (data) {
       toast('Guardado ✓');
       pintarDetalle(data);
       actualizarEnLista(data.reclamo, data.instalaciones);
+      if (data.derivacion) abrirWa(data.derivacion, w);
+      else if (w) w.close();
     }).catch(function (err) {
+      if (w) w.close();
       toast(err.message, true);
       btn.disabled = false; btn.textContent = 'Guardar cambios';
+    });
+  }
+
+  function ventanaWa(tecnico) {
+    var w = window.open('', '_blank');
+    try { w.document.write('<p style="font-family:sans-serif;padding:24px">Preparando el WhatsApp para ' + esc(tecnico) + '…</p>'); } catch (e) { /* nada */ }
+    return w;
+  }
+  function abrirWa(d, w) {
+    if (w && !w.closed) { w.location.href = d.wa; toast('Derivado a ' + d.tecnico + ': revisá el mensaje en WhatsApp y envialo.'); return; }
+    if (!window.open(d.wa, '_blank')) toast('El navegador bloqueó la ventana: tocá "Reenviar WhatsApp a ' + d.tecnico + '".', true);
+  }
+  function reenviarWa(btn) {
+    if (hayCambios()) { toast('Primero guardá los cambios.', true); return; }
+    var w = ventanaWa(S.det.data.reclamo.tecnico);
+    btn.disabled = true;
+    api('derivacion', { id: S.det.id }).then(function (data) {
+      pintarDetalle(data);
+      abrirWa(data.derivacion, w);
+    }).catch(function (err) {
+      if (w) w.close();
+      toast(err.message, true);
+      btn.disabled = false;
     });
   }
 
@@ -777,6 +818,7 @@
       else if (acc === 'salir') { borrarLocal(LS_PIN); S.pin = ''; S.lista = []; pintarLogin(); }
       else if (acc === 'cerrar') cerrarDetalle();
       else if (acc === 'guardar') guardar(t);
+      else if (acc === 'waTecnico') reenviarWa(t);
       else if (acc === 'buscarInst') buscarInstalacion();
       else if (acc === 'nuevoRp') abrirRp({ fecha: hoyISO(), devolucion: 'Pendiente' });
       else if (acc === 'refrescarRp') { S.rp.lista = null; pintarReemplazos(); }

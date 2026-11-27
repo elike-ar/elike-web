@@ -42,6 +42,8 @@ Apps Script "Elike - Reclamos técnicos" (cuenta gustavo.retegui@elike-ar.com)
 ### Qué hace
 
 - **El cliente** carga el reclamo con el formulario de siempre (link del Apps Script) y lo sigue en la página de seguimiento.
+- **Estados**: *Recibido* → *Derivada al técnico* → *Resuelto* / *No procede*.
+- **Derivar al técnico**: al pasar un reclamo a *Derivada al técnico* (con técnico elegido) y guardar, el panel abre WhatsApp con un mensaje para el técnico: datos del cliente (con link a su WhatsApp), dirección, producto, compra, instalación vinculada, falla reportada y link a las fotos/videos (la carpeta de ese reclamo se comparte por link, solo lectura; se desactiva con `API_CFG.COMPARTIR_ADJUNTOS`). El teléfono del técnico sale de la columna `tel` de la pestaña *Instaladores*. El botón *Reenviar WhatsApp* lo vuelve a armar. Cada envío queda en el *Historial*.
 - **ELIKE** en el panel: cambia el estado, asigna el técnico (la lista sale de la pestaña *Instaladores* del sistema de instalaciones), agenda la visita, carga el diagnóstico y la solución, registra cambios de producto, deja un mensaje para el cliente y notas internas.
 - **Vínculo con la instalación**: cada reclamo busca automáticamente su instalación ELIKE por **teléfono** (normalizado: +54, 9, 0 y 15 no importan). Si no coincide, se busca a mano (ELK-xxxx, nombre o teléfono) y se vincula. Los vínculos manuales quedan en la hoja *Vínculos* de la planilla de reclamos.
 - Cada cambio queda en la hoja *Historial* con quién lo hizo.
